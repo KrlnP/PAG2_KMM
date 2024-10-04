@@ -2,4 +2,4 @@
 
 Karolina Pawlak \
 Maja Kret \
-Maja Płaciszewska \
+Maja Płaciszewska 
