@@ -1,1 +1,6 @@
-# PAG2_KMM
+## PAG2_KMM
+
+
+Karolina Pawlak
+Maja Kret
+Maja Płaciszewksa
