@@ -106,26 +106,27 @@ class Tool:
                 vertices[(x, y)] = {'id': vertex_id, 'x': x, 'y': y, 'edges': []}
             return vertices[(x, y)]['id']
 
+        
         def speed(klasa):
             kmh2ms = 1000 / 3600
-            match klasa:
-                case 'A':
-                    return 140 * kmh2ms
-                case 'S':
-                    return 120 * kmh2ms
-                case 'GP':
-                    return 70 * kmh2ms
-                case 'G':
-                    return 60 * kmh2ms
-                case 'Z':
-                    return 50 * kmh2ms
-                case 'L':
-                    return 40 * kmh2ms
-                case 'D':
-                    return 20 * kmh2ms
-                case 'I':
-                    return 20 * kmh2ms
-            return 10
+            if klasa == 'A':
+                return 140 * kmh2ms
+            elif klasa == 'S':
+                return 120 * kmh2ms
+            elif klasa == 'GP':
+                return 70 * kmh2ms
+            elif klasa == 'G':
+                return 60 * kmh2ms
+            elif klasa == 'Z':
+                return 50 * kmh2ms
+            elif klasa == 'L':
+                return 40 * kmh2ms
+            elif klasa == 'D':
+                return 20 * kmh2ms
+            elif klasa == 'I':
+                return 20 * kmh2ms
+            else:
+                return 10
         
         arcpy.AddMessage("Creating graph...")
 
@@ -286,39 +287,39 @@ class Tool:
         def a_star_path(graph, road_ids, vertices, start, end):
             open_set = []  # priority queue
             heapq.heappush(open_set, (0, start))  # (f-score, vertex)
-            g_score = {vertex: float('inf') for vertex in graph}
-            g_score[start] = 0
+            g_score = {start: 0} # known cost to reach each node
             prev = {}
 
             # Logging variables
             S_size = 0
-            visited_nodes = 0
+            visited_nodes = []
 
             while open_set:
                 # get the node with best f-score (lowest cost)
                 _, current = heapq.heappop(open_set)
-                visited_nodes += 1
+                visited_nodes.append(current)
 
                 if current == end:
-                    print(f"Number of vertices in S (open_set) processed: {S_size}")
-                    print(f"Total number of visited vertices: {visited_nodes}")
+                    arcpy.AddMessage(f"Number of vertices in S set: {S_size}")
+                    arcpy.AddMessage(f"Total number of visited vertices: {len(visited_nodes)}")
                     
                     return retrieve_path(prev, start, end, road_ids)
 
                 for neighbor, length in graph[current]:
+                    if neighbor not in g_score:
+                        g_score[neighbor] = float('inf')
+                    # calculate tentative cost to reach neighbor (cost of reaching current + distance to neighbor)
                     tentative_g_score = g_score[current] + length
                     if tentative_g_score < g_score[neighbor]:
                         prev[neighbor] = current
                         g_score[neighbor] = tentative_g_score
+                        # calculate f score:  total cost to reach neigbor + heuristic estimate
                         f_score = g_score[neighbor] + heuristic(neighbor, end, vertices)
                         heapq.heappush(open_set, (f_score, neighbor))
 
-                # Update the size of the set S (open_set)
+                # update the size of the set S (open_set)
                 S_size = len(open_set)
 
-            arcpy.AddMessage(f"Number of vertices in S set: {S_size}")
-            arcpy.AddMessage(f"Total number of visited vertices: {visited_nodes}")
-            
             return None, None
 
         g, road_ids, road_lengths, road_speeds = read_graph_undirected(OUT_edges_txt)
