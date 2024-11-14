@@ -46,6 +46,17 @@ class Tool:
             parameterType="Required",
             direction="Input")
 
+        algorithm_type = arcpy.Parameter(
+            displayName="Type of path",
+            name="algorithm",
+            #2 options: shortest path, fastest path
+            datatype="GPString",
+            parameterType="Required",
+            direction="Input")
+
+        algorithm_type.filter.type = "ValueList"
+        algorithm_type.filter.list = ["Shortest Path", "Fastest Path"]
+
         output_visited_vertices = arcpy.Parameter(
             displayName="Visited vertices",
             name="vis_vertices",
@@ -60,7 +71,7 @@ class Tool:
             parameterType="Derived",
             direction="Output")
         
-        params = [SKJZ, start_end, output_folder, output_visited_vertices, output_visited_roads]
+        params = [SKJZ, start_end, output_folder, algorithm_type, output_visited_vertices, output_visited_roads]
         return params
 
     def isLicensed(self):
@@ -88,6 +99,7 @@ class Tool:
         SKJZ = parameters[0].valueAsText
         start_end_layer = parameters[1].valueAsText
         folder = parameters[2].valueAsText
+        path_type = parameters[3].valueAsText
 
         OUT_vertices_txt = folder + r"\vertices.txt"
         OUT_edges_txt = folder + r"\edges.txt"
@@ -253,8 +265,8 @@ class Tool:
                 length, speed = float(e[4]), float(e[5])
 
                 # store neighbors and length for each direction
-                g[from_vertex].append((to_vertex, length))
-                g[to_vertex].append((from_vertex, length))
+                g[from_vertex].append((to_vertex, length, speed))
+                g[to_vertex].append((from_vertex, length, speed))
 
                 # store road ID and length for each direction (undirected graph)
                 road_ids[(from_vertex, to_vertex)] = road_id
@@ -278,13 +290,13 @@ class Tool:
             return path, road_path
 
         # estimate euclidean distance from one node to another
-        def heuristic(v, goal, vertices):
+        def heuristic_shortest(v, goal, vertices):
             vx, vy = vertices[v]['x'], vertices[v]['y']
             gx, gy = vertices[goal]['x'], vertices[goal]['y']
             return math.sqrt((vx - gx) ** 2 + (vy - gy) ** 2)
 
         # A* pathfinding algorithm with logging
-        def a_star_path(graph, road_ids, vertices, start, end):
+        def a_star_path_shortest(graph, road_ids, vertices, start, end):
             open_set = []  # priority queue
             heapq.heappush(open_set, (0, start))  # (f-score, vertex)
             g_score = {start: 0} # known cost to reach each node
@@ -305,7 +317,7 @@ class Tool:
                     
                     return retrieve_path(prev, start, end, road_ids)
 
-                for neighbor, length in graph[current]:
+                for neighbor, length, _ in graph[current]:
                     if neighbor not in g_score:
                         g_score[neighbor] = float('inf')
                     # calculate tentative cost to reach neighbor (cost of reaching current + distance to neighbor)
@@ -314,13 +326,52 @@ class Tool:
                         prev[neighbor] = current
                         g_score[neighbor] = tentative_g_score
                         # calculate f score:  total cost to reach neigbor + heuristic estimate
-                        f_score = g_score[neighbor] + heuristic(neighbor, end, vertices)
+                        f_score = g_score[neighbor] + heuristic_shortest(neighbor, end, vertices)
                         heapq.heappush(open_set, (f_score, neighbor))
 
                 # update the size of the set S (open_set)
                 S_size = len(open_set)
 
             return None, None
+        def heuristic_fastest(v, goal, vertices, road_speeds):
+            vx, vy = vertices[v]['x'], vertices[v]['y']
+            gx, gy = vertices[goal]['x'], vertices[goal]['y']
+            distance = math.sqrt((vx - gx) ** 2 + (vy - gy) ** 2)
+            max_speed = max(road_speeds.values())
+
+            return distance / max_speed
+
+        def a_star_path_fastest(graph, road_ids, road_speeds, vertices, start, end):
+            open_set = []  
+            heapq.heappush(open_set, (0, start)) 
+            g_score = {start: 0}
+            prev = {}
+
+            S_size = 0
+            visited_nodes = []
+
+            while open_set:
+                _, current = heapq.heappop(open_set)
+                visited_nodes.append(current)
+
+                if current == end:
+                    arcpy.AddMessage(f"Number of vertices in S set: {S_size}")
+                    arcpy.AddMessage(f"Total number of visited vertices: {len(visited_nodes)}")
+                    return retrieve_path(prev, start, end, road_ids)
+
+                for neighbor, length, speed in graph[current]:
+                    if neighbor not in g_score:
+                        g_score[neighbor] = float('inf')
+                    tentative_g_score = g_score[current] + (length / speed) 
+                    if tentative_g_score < g_score[neighbor]:
+                        prev[neighbor] = current
+                        g_score[neighbor] = tentative_g_score
+                        f_score = g_score[neighbor] + heuristic_fastest(neighbor, end, vertices, road_speeds) 
+                        heapq.heappush(open_set, (f_score, neighbor))
+
+                S_size = len(open_set)
+
+            return None
 
         g, road_ids, road_lengths, road_speeds = read_graph_undirected(OUT_edges_txt)
 
@@ -334,7 +385,11 @@ class Tool:
                 vertices_dict[v_id] = {'x': x, 'y': y}
 
         arcpy.AddMessage("Finding path...")
-        path, road_path = a_star_path(g, road_ids, vertices_dict, start, end)
+
+        if path_type == "Shortest Path":
+            path, road_path = a_star_path_shortest(g, road_ids, vertices_dict, start, end)
+        elif path_type == "Fastest Path":
+            path, road_path = a_star_path_fastest(g, road_ids, road_speeds, vertices_dict, start, end)
 
         if path is None:
             arcpy.AddMessage("No path between given vertices")
@@ -419,7 +474,11 @@ class Tool:
             where_clause=sql_expression
         )
 
-        roads_dispname = os.path.splitext("visisted_roads")[0]
+        if path_type == "Shortest Path":
+            roads_dispname = os.path.splitext("Shortest Path")[0]
+        elif path_type == "Fastest Path":
+            roads_dispname = os.path.splitext("Fastest Path")[0]
+
         arcpy.MakeFeatureLayer_management(OUT_visited_roads, roads_dispname)
         arcpy.SetParameterAsText(4, roads_dispname)
         arcpy.AddMessage("Added visited roads to display.")
