@@ -1,5 +1,4 @@
-## PAG2_KMM
-
+## TWÓRCY
 Karolina Pawlak \
 Maja Kret \
 Maja Płaciszewska 
@@ -8,7 +7,7 @@ Maja Płaciszewska
 Program służy do wyznaczania trasy za pomocą algorytmu A* dla dowolnej sieci drogowej. Dla wybranych parametrów tworzona jest najbardziej optymalna trasa pomiędzy dwoma punktami na mapie. 
 
 ## URUCHOMIENIE PROGRAMU
-Import pliku ==RoadPath.pyt== jako Toolbox w środowisku ArcGIS Pro.
+Import pliku **RoadPath.pyt** jako Toolbox w środowisku ArcGIS Pro.
 
 ![image](https://github.com/user-attachments/assets/2a275b25-e032-4c55-8b8b-a0a2cc47b2a8)
 
