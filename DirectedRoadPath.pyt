@@ -8,7 +8,7 @@ class Toolbox:
     def __init__(self): 
         """Define the toolbox (the name of the toolbox is the name of the
         .pyt file)."""
-        self.label = "Toolbox"
+        self.label = "A* path finder"
         self.alias = "toolbox"
 
         # List of tool classes associated with this toolbox
@@ -335,16 +335,24 @@ class Tool:
             return path, road_path
 
         # Estimate euclidean distance from one node to another
-        def heuristic_shortest(v, goal, vertices):
+        def heuristic_shortest(v, goal, vertices, road_speeds):
             vx, vy = vertices[v]['x'], vertices[v]['y']
             gx, gy = vertices[goal]['x'], vertices[goal]['y']
             return math.sqrt((vx - gx) ** 2 + (vy - gy) ** 2)
+        
+        def heuristic_fastest(v, goal, vertices, road_speeds):
+            vx, vy = vertices[v]['x'], vertices[v]['y']
+            gx, gy = vertices[goal]['x'], vertices[goal]['y']
+            distance = math.sqrt((vx - gx) ** 2 + (vy - gy) ** 2)
+            max_speed = max(road_speeds.values())
 
-        # A* pathfinding algorithm with logging
-        def a_star_path_shortest(graph, road_ids, vertices, start, end):
+            return distance / max_speed
+
+        # A* pathfinding algorithm
+        def a_star_path(graph, road_ids, road_lengths, road_speeds, vertices, start, end, heuristic):
             open_set = []  # priority queue
             heapq.heappush(open_set, (0, start))  # (f-score, vertex)
-            g_score = {start: 0} # known cost to reach each node
+            g_score = {start: 0}  # known cost to reach each node
             prev = {}
 
             # Logging variables
@@ -359,63 +367,22 @@ class Tool:
                 if current == end:
                     arcpy.AddMessage(f"Number of vertices in S set: {S_size}")
                     arcpy.AddMessage(f"Total number of visited vertices: {len(visited_nodes)}")
-                    
-                    return retrieve_path(prev, start, end, road_ids)
-
-                for neighbor, length, _ in graph[current]:
-                    if neighbor not in g_score:
-                        g_score[neighbor] = float('inf')
-                    # calculate tentative cost to reach neighbor (cost of reaching current + distance to neighbor)
-                    tentative_g_score = g_score[current] + length
-                    if tentative_g_score < g_score[neighbor]:
-                        prev[neighbor] = current
-                        g_score[neighbor] = tentative_g_score
-                        # calculate f score:  total cost to reach neigbor + heuristic estimate
-                        f_score = g_score[neighbor] + heuristic_shortest(neighbor, end, vertices)
-                        heapq.heappush(open_set, (f_score, neighbor))
-
-                # update the size of the set S (open_set)
-                S_size = len(open_set)
-
-            return None, None
-        
-        def heuristic_fastest(v, goal, vertices, road_speeds):
-            vx, vy = vertices[v]['x'], vertices[v]['y']
-            gx, gy = vertices[goal]['x'], vertices[goal]['y']
-            distance = math.sqrt((vx - gx) ** 2 + (vy - gy) ** 2)
-            max_speed = max(road_speeds.values())
-
-            return distance / max_speed
-
-        def a_star_path_fastest(graph, road_ids, road_speeds, vertices, start, end):
-            open_set = []  
-            heapq.heappush(open_set, (0, start)) 
-            g_score = {start: 0}
-            prev = {}
-
-            S_size = 0
-            visited_nodes = []
-
-            while open_set:
-                _, current = heapq.heappop(open_set)
-                visited_nodes.append(current)
-
-                if current == end:
-                    arcpy.AddMessage(f"Number of vertices in S set: {S_size}")
-                    arcpy.AddMessage(f"Total number of visited vertices: {len(visited_nodes)}")
-
                     return retrieve_path(prev, start, end, road_ids)
 
                 for neighbor, length, speed in graph[current]:
                     if neighbor not in g_score:
                         g_score[neighbor] = float('inf')
-                    tentative_g_score = g_score[current] + (length / speed) 
+                    # Adjust cost calculation based on heuristic
+                    cost = length if heuristic == heuristic_shortest else (length / speed)
+                    tentative_g_score = g_score[current] + cost
                     if tentative_g_score < g_score[neighbor]:
                         prev[neighbor] = current
                         g_score[neighbor] = tentative_g_score
-                        f_score = g_score[neighbor] + heuristic_fastest(neighbor, end, vertices, road_speeds) 
+                        # Calculate f-score: total cost to reach neighbor + heuristic estimate
+                        f_score = g_score[neighbor] + heuristic(neighbor, end, vertices, road_speeds)
                         heapq.heappush(open_set, (f_score, neighbor))
 
+                # Update the size of the set S (open_set)
                 S_size = len(open_set)
 
             return None, None
@@ -436,9 +403,9 @@ class Tool:
 
         # Get path and roads
         if path_type == "Shortest Path":
-            path, road_path = a_star_path_shortest(g, road_ids, vertices_dict, start, end)
+            path, road_path = a_star_path(g, road_ids, road_lengths, road_speeds, vertices_dict, start, end, heuristic_shortest)
         elif path_type == "Fastest Path":
-            path, road_path = a_star_path_fastest(g, road_ids, road_speeds, vertices_dict, start, end)
+            path, road_path = a_star_path(g, road_ids, road_lengths, road_speeds, vertices_dict, start, end, heuristic_fastest)
 
         if path is None:
             arcpy.AddMessage("No path between given vertices")
@@ -577,3 +544,4 @@ class Tool:
     def postExecute(self, parameters):
         """This method takes place after outputs are processed and
         added to the display."""
+
