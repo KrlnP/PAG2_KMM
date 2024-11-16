@@ -367,6 +367,7 @@ class Tool:
                 if current == end:
                     arcpy.AddMessage(f"Number of vertices in S set: {S_size}")
                     arcpy.AddMessage(f"Total number of visited vertices: {len(visited_nodes)}")
+
                     return retrieve_path(prev, start, end, road_ids)
 
                 for neighbor, length, speed in graph[current]:
@@ -515,6 +516,10 @@ class Tool:
             where_clause=sql_expression
         )
 
+        def display_features(OUT_path, parameter, dispname):
+            arcpy.MakeFeatureLayer_management(OUT_path, dispname)
+            arcpy.SetParameterAsText(parameter, dispname)
+
         # Display the route
         if path_type == "Shortest Path":
             arcpy.analysis.Select(  
@@ -523,8 +528,7 @@ class Tool:
                 where_clause=sql_expression
             )
             roads_dispname = os.path.splitext("Shortest Path")[0]
-            arcpy.MakeFeatureLayer_management(OUT_shortest_path, roads_dispname)
-            arcpy.SetParameterAsText(4, roads_dispname)
+            display_features(OUT_shortest_path, 4, roads_dispname)
 
 
         elif path_type == "Fastest Path":
@@ -534,8 +538,7 @@ class Tool:
                 where_clause=sql_expression
             )
             roads_dispname = os.path.splitext("Fastest Path")[0]
-            arcpy.MakeFeatureLayer_management(OUT_fastest_path, roads_dispname)
-            arcpy.SetParameterAsText(5, roads_dispname)
+            display_features(OUT_fastest_path, 5, roads_dispname)
 
         arcpy.AddMessage("\nPath added to display.")
 
