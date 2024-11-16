@@ -302,27 +302,19 @@ class Tool:
                     g[from_vertex].append((to_vertex, length, speed))
                     g[to_vertex].append((from_vertex, length, speed))
 
-                    # store road ID and length
-                    road_ids[(from_vertex, to_vertex)] = road_id
-                    road_ids[(to_vertex, from_vertex)] = road_id
-                    road_lengths[(from_vertex, to_vertex)] = length
-                    road_lengths[(to_vertex, from_vertex)] = length
-                    road_speeds[(from_vertex, to_vertex)] = speed
-                    road_speeds[(to_vertex, from_vertex)] = speed
-
                 elif direction == 1: # one-way road (start -> end)
                     g[from_vertex].append((to_vertex, length, speed))
-
-                    road_ids[(from_vertex, to_vertex)] = road_id
-                    road_lengths[(from_vertex, to_vertex)] = length
-                    road_speeds[(from_vertex, to_vertex)] = speed
 
                 elif direction == 2: # one-way road (end -> start)
                     g[to_vertex].append((from_vertex, length, speed))
 
-                    road_ids[(to_vertex, from_vertex)] = road_id
-                    road_lengths[(to_vertex, from_vertex)] = length
-                    road_speeds[(to_vertex, from_vertex)] = speed
+                 # store road ID and length in both directions
+                road_ids[(from_vertex, to_vertex)] = road_id
+                road_ids[(to_vertex, from_vertex)] = road_id
+                road_lengths[(from_vertex, to_vertex)] = length
+                road_lengths[(to_vertex, from_vertex)] = length
+                road_speeds[(from_vertex, to_vertex)] = speed
+                road_speeds[(to_vertex, from_vertex)] = speed
 
             # else if direction == 3, do nothing (road is not used)
 
@@ -463,12 +455,12 @@ class Tool:
         with open(OUT_vertices_txt, 'r') as f:
             vertices = f.readlines()
             vertices = [x.strip() for x in vertices]
-            path = [vertices[i+2].split()[0] for i in path]
+            path_vertex = [vertices[i+2].split()[0] for i in path]
 
         # write the vertices in path to a file
         with open(OUT_visited_vertices_txt, 'w') as f:
             f.write("id\tx\ty\tedges\n")
-            for i in path:
+            for i in path_vertex:
                 f.write(vertices[int(i)] + '\n')
 
         # write the road path to a file
@@ -585,4 +577,3 @@ class Tool:
     def postExecute(self, parameters):
         """This method takes place after outputs are processed and
         added to the display."""
-
