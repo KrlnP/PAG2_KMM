@@ -64,14 +64,21 @@ class Tool:
             parameterType="Derived",
             direction="Output")
         
-        output_visited_roads = arcpy.Parameter(
-            displayName="Visited Roads",
-            name="vis_roads",
+        output_shortest_path = arcpy.Parameter(
+            displayName="Shortest Path",
+            name="shortest_path",
             datatype="GPFeatureLayer",
             parameterType="Derived",
             direction="Output")
         
-        params = [SKJZ, start_end, output_folder, algorithm_type, output_visited_vertices, output_visited_roads]
+        output_fastest_path = arcpy.Parameter(
+            displayName="Fastest Path",
+            name="fastest_path",
+            datatype="GPFeatureLayer",
+            parameterType="Derived",
+            direction="Output")
+        
+        params = [SKJZ, start_end, output_folder, algorithm_type, output_visited_vertices, output_shortest_path, output_fastest_path]
         return params
 
     def isLicensed(self):
@@ -105,9 +112,29 @@ class Tool:
         OUT_edges_txt = folder + r"\edges.txt"
         OUT_vertices_shp = folder + r"\vertices"
         OUT_visited_vertices_txt = folder + r"\visited_vertices.txt"
+        OUT_path = folder + r"\path.txt"
         OUT_visited_edges_txt = folder + r"\visited_roads.txt"
         OUT_visited_vertices  = folder + r"\visited_vertices"
-        OUT_visited_roads = folder + r"\visited_roads"
+        OUT_shortest_path = folder + r"\shortest_path"
+        OUT_fastest_path = folder + r"\fastest_path"
+
+        # Check if stard_end_layer is a point layer
+        desc = arcpy.Describe(start_end_layer)
+        if desc.shapeType != "Point":
+            arcpy.AddError("Start and end points must be points")
+            return
+        
+        # Check if SKJZ is a line layer
+        desc = arcpy.Describe(SKJZ)
+        if desc.shapeType != "Polyline":
+            print(desc.shapeType)
+            arcpy.AddError("Road features must be lines")
+            return
+
+        # Check if the output folder exists
+        if not os.path.exists(folder):
+            arcpy.AddError("Output folder does not exist")
+            return
 
         vertices = {}
         edges = []
@@ -290,13 +317,21 @@ class Tool:
             return path, road_path
 
         # estimate euclidean distance from one node to another
-        def heuristic_shortest(v, goal, vertices):
+        def heuristic_shortest(v, goal, vertices, road_speeds):
             vx, vy = vertices[v]['x'], vertices[v]['y']
             gx, gy = vertices[goal]['x'], vertices[goal]['y']
             return math.sqrt((vx - gx) ** 2 + (vy - gy) ** 2)
 
-        # A* pathfinding algorithm with logging
-        def a_star_path_shortest(graph, road_ids, vertices, start, end):
+        def heuristic_fastest(v, goal, vertices, road_speeds):
+            vx, vy = vertices[v]['x'], vertices[v]['y']
+            gx, gy = vertices[goal]['x'], vertices[goal]['y']
+            distance = math.sqrt((vx - gx) ** 2 + (vy - gy) ** 2)
+            max_speed = max(road_speeds.values())
+
+            return distance / max_speed
+
+        # A* pathfinding algorithm
+        def a_star_path(graph, road_ids, road_lengths, road_speeds, vertices, start, end, heuristic):
             open_set = []  # priority queue
             heapq.heappush(open_set, (0, start))  # (f-score, vertex)
             g_score = {start: 0} # known cost to reach each node
@@ -317,61 +352,24 @@ class Tool:
                     
                     return retrieve_path(prev, start, end, road_ids)
 
-                for neighbor, length, _ in graph[current]:
+                for neighbor, length, speed in graph[current]:
                     if neighbor not in g_score:
                         g_score[neighbor] = float('inf')
                     # calculate tentative cost to reach neighbor (cost of reaching current + distance to neighbor)
-                    tentative_g_score = g_score[current] + length
+                    # Adjust cost calculation based on heuristic
+                    cost = length if heuristic == heuristic_shortest else (length / speed)
+                    tentative_g_score = g_score[current] + cost
                     if tentative_g_score < g_score[neighbor]:
                         prev[neighbor] = current
                         g_score[neighbor] = tentative_g_score
                         # calculate f score:  total cost to reach neigbor + heuristic estimate
-                        f_score = g_score[neighbor] + heuristic_shortest(neighbor, end, vertices)
+                        f_score = g_score[neighbor] + heuristic(neighbor, end, vertices, road_speeds)
                         heapq.heappush(open_set, (f_score, neighbor))
 
                 # update the size of the set S (open_set)
                 S_size = len(open_set)
 
             return None, None
-        def heuristic_fastest(v, goal, vertices, road_speeds):
-            vx, vy = vertices[v]['x'], vertices[v]['y']
-            gx, gy = vertices[goal]['x'], vertices[goal]['y']
-            distance = math.sqrt((vx - gx) ** 2 + (vy - gy) ** 2)
-            max_speed = max(road_speeds.values())
-
-            return distance / max_speed
-
-        def a_star_path_fastest(graph, road_ids, road_speeds, vertices, start, end):
-            open_set = []  
-            heapq.heappush(open_set, (0, start)) 
-            g_score = {start: 0}
-            prev = {}
-
-            S_size = 0
-            visited_nodes = []
-
-            while open_set:
-                _, current = heapq.heappop(open_set)
-                visited_nodes.append(current)
-
-                if current == end:
-                    arcpy.AddMessage(f"Number of vertices in S set: {S_size}")
-                    arcpy.AddMessage(f"Total number of visited vertices: {len(visited_nodes)}")
-                    return retrieve_path(prev, start, end, road_ids)
-
-                for neighbor, length, speed in graph[current]:
-                    if neighbor not in g_score:
-                        g_score[neighbor] = float('inf')
-                    tentative_g_score = g_score[current] + (length / speed) 
-                    if tentative_g_score < g_score[neighbor]:
-                        prev[neighbor] = current
-                        g_score[neighbor] = tentative_g_score
-                        f_score = g_score[neighbor] + heuristic_fastest(neighbor, end, vertices, road_speeds) 
-                        heapq.heappush(open_set, (f_score, neighbor))
-
-                S_size = len(open_set)
-
-            return None
 
         g, road_ids, road_lengths, road_speeds = read_graph_undirected(OUT_edges_txt)
 
@@ -387,22 +385,39 @@ class Tool:
         arcpy.AddMessage("Finding path...")
 
         if path_type == "Shortest Path":
-            path, road_path = a_star_path_shortest(g, road_ids, vertices_dict, start, end)
+            path, road_path = a_star_path(g, road_ids, road_lengths, road_speeds, vertices_dict, start, end, heuristic_shortest)
         elif path_type == "Fastest Path":
-            path, road_path = a_star_path_fastest(g, road_ids, road_speeds, vertices_dict, start, end)
+            path, road_path = a_star_path(g, road_ids, road_lengths, road_speeds, vertices_dict, start, end, heuristic_fastest)
 
         if path is None:
             arcpy.AddMessage("No path between given vertices")
             return
         else:
-            arcpy.AddMessage(f"Path found: {path}")
+            arcpy.AddMessage(f"Path found.")
 
         # count total length and time
         def convert_time(total_seconds):
+            hours, minutes, seconds = 0, 0, 0
             hours = total_seconds // 3600
             minutes = (total_seconds % 3600) // 60
             seconds = total_seconds % 60
-            return f"{int(hours)}h {int(minutes)}min {int(seconds)}sec"
+            if hours != 0:
+                return f"{int(hours)}h {int(minutes)}min {int(seconds)}sec"
+            elif minutes != 0:
+                return f"{int(minutes)}min {int(seconds)}sec"
+            else:
+                return f"{int(seconds)}sec"
+
+        def convert_len(length):
+            km = 0
+            if length > 1000:
+                km = length // 1000
+            m = length % 1000
+            
+            if km != 0:
+                return f"{int(km)}km {round(m)}m"
+            else:
+                return f"{round(m)} m"
 
         def len_time(path):
             total_length = 0
@@ -421,26 +436,31 @@ class Tool:
             return total_length, total_time
 
         total_length, total_time = len_time(path)
-        formatted_time = convert_time(total_time)
 
-        arcpy.AddMessage(f"Total length of route: {round(total_length, 2)} meters")
-        arcpy.AddMessage(f"Total time: {formatted_time}")
+        arcpy.AddMessage(f"\n--------------- Route ---------------")
+        arcpy.AddMessage(f"Total length of the route: {convert_len(total_length)}")
+        arcpy.AddMessage(f"Total time of the route: {convert_time(total_time)}")
+
         arcpy.AddMessage(f"Writing path to files...")
+
         # find the vertices in the path and write the coords to the file
+        with open(OUT_path, 'w') as f:
+                for i in path:
+                    f.write(str(i) + '\n')
+
         with open(OUT_vertices_txt, 'r') as f:
             vertices = f.readlines()
             vertices = [x.strip() for x in vertices]
-            path = [vertices[i+2].split()[0] for i in path]
+            path_vertex = [vertices[i+2].split()[0] for i in path]
 
-        # write the path to a file
+        # write the vertices in path to a file
         with open(OUT_visited_vertices_txt, 'w') as f:
             f.write("id\tx\ty\tedges\n")
-            for i in path:
+            for i in path_vertex:
                 f.write(vertices[int(i)] + '\n')
 
         # write the road path to a file
         with open(OUT_visited_edges_txt, 'w') as f:
-            f.write("id\tx\ty\tedges\n")
             for i in road_path:
                 f.write(str(i) + '\n')
 
@@ -468,20 +488,29 @@ class Tool:
 
         sql_expression = create_sql_expression(road_path)
 
-        arcpy.analysis.Select(  
-            in_features=SKJZ,
-            out_feature_class=OUT_visited_roads,
-            where_clause=sql_expression
-        )
+        def display_features(OUT_path, parameter, dispname):
+            arcpy.MakeFeatureLayer_management(OUT_path, dispname)
+            arcpy.SetParameterAsText(parameter, dispname)
 
         if path_type == "Shortest Path":
+            arcpy.analysis.Select(  
+                in_features=SKJZ,
+                out_feature_class=OUT_shortest_path,
+                where_clause=sql_expression
+            )
             roads_dispname = os.path.splitext("Shortest Path")[0]
-        elif path_type == "Fastest Path":
-            roads_dispname = os.path.splitext("Fastest Path")[0]
+            display_features(OUT_shortest_path, 4, roads_dispname)
 
-        arcpy.MakeFeatureLayer_management(OUT_visited_roads, roads_dispname)
-        arcpy.SetParameterAsText(4, roads_dispname)
-        arcpy.AddMessage("Added visited roads to display.")
+        elif path_type == "Fastest Path":
+            arcpy.analysis.Select(  
+                in_features=SKJZ,
+                out_feature_class=OUT_fastest_path,
+                where_clause=sql_expression
+            )
+            roads_dispname = os.path.splitext("Fastest Path")[0]
+            display_features(OUT_fastest_path, 5, roads_dispname)
+
+        arcpy.AddMessage("\nPath added to display.")
 
         return
 
