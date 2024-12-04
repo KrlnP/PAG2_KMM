@@ -322,16 +322,15 @@ class Tool:
             gx, gy = vertices[goal]['x'], vertices[goal]['y']
             return math.sqrt((vx - gx) ** 2 + (vy - gy) ** 2)
 
-        def heuristic_fastest(v, goal, vertices, road_speeds):
+        def heuristic_fastest(v, goal, vertices, max_speed):
             vx, vy = vertices[v]['x'], vertices[v]['y']
             gx, gy = vertices[goal]['x'], vertices[goal]['y']
             distance = math.sqrt((vx - gx) ** 2 + (vy - gy) ** 2)
-            max_speed = max(road_speeds.values())
 
             return distance / max_speed
 
         # A* pathfinding algorithm
-        def a_star_path(graph, road_ids, road_lengths, road_speeds, vertices, start, end, heuristic):
+        def a_star_path(graph, road_ids, road_lengths, max_speed, vertices, start, end, heuristic):
             open_set = []  # priority queue
             heapq.heappush(open_set, (0, start))  # (f-score, vertex)
             g_score = {start: 0} # known cost to reach each node
@@ -363,7 +362,7 @@ class Tool:
                         prev[neighbor] = current
                         g_score[neighbor] = tentative_g_score
                         # calculate f score:  total cost to reach neigbor + heuristic estimate
-                        f_score = g_score[neighbor] + heuristic(neighbor, end, vertices, road_speeds)
+                        f_score = g_score[neighbor] + heuristic(neighbor, end, vertices, max_speed)
                         heapq.heappush(open_set, (f_score, neighbor))
 
                 # update the size of the set S (open_set)
@@ -372,6 +371,7 @@ class Tool:
             return None, None
 
         g, road_ids, road_lengths, road_speeds = read_graph_undirected(OUT_edges_txt)
+        max_speed = max(road_speeds.values())
 
         vertices_dict = {}
         with open(OUT_vertices_txt, 'r') as vf:
@@ -385,9 +385,9 @@ class Tool:
         arcpy.AddMessage("Finding path...")
 
         if path_type == "Shortest Path":
-            path, road_path = a_star_path(g, road_ids, road_lengths, road_speeds, vertices_dict, start, end, heuristic_shortest)
+            path, road_path = a_star_path(g, road_ids, road_lengths, max_speed, vertices_dict, start, end, heuristic_shortest)
         elif path_type == "Fastest Path":
-            path, road_path = a_star_path(g, road_ids, road_lengths, road_speeds, vertices_dict, start, end, heuristic_fastest)
+            path, road_path = a_star_path(g, road_ids, road_lengths, max_speed, vertices_dict, start, end, heuristic_fastest)
 
         if path is None:
             arcpy.AddMessage("No path between given vertices")
